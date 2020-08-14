@@ -25,6 +25,8 @@ struct HostPipelineConfig
         float       padding_factor = 0.3f;
         float       depth_limit_m = 10.0f;
         float       confidence_threshold = 0.5f;
+        uint8_t     median_kernel_size = 7;
+        bool        lr_check = false;
     } depth;
 
     struct AI

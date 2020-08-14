@@ -107,6 +107,23 @@ bool HostPipelineConfig::initWithJSON(const json &json_obj)
                     break;
                 }
             }
+
+            if (depth_obj.contains("median_kernel_size"))
+            {
+                depth.median_kernel_size = depth_obj.at("median_kernel_size").get<uint8_t>();
+                uint8_t opts[] = {0, 3, 5, 7};
+
+                if (std::find(std::begin(opts), std::end(opts), depth.median_kernel_size) == std::end(opts))
+                {
+                    std::cerr << WARNING "median_kernel_size valid options: 0 (disabled), 3, 5, 7\n" ENDC;
+                    break;
+                }
+            }
+
+            if (depth_obj.contains("lr_check"))
+            {
+                depth.lr_check = depth_obj.at("lr_check").get<bool>();
+            }
         }
 
         // "ai"

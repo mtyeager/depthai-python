@@ -32,6 +32,8 @@ std::unordered_map<std::string, StreamInfo> c_streams_myriad_to_pc =
     {"left",        StreamInfo("left",      MONO_MAX_SIZE(1,1), { MONO_RES_AUTO, 0} )},
     {"right",       StreamInfo("right",     MONO_MAX_SIZE(1,1), { MONO_RES_AUTO, 0} )},
     {"disparity",   StreamInfo("disparity", MONO_MAX_SIZE(1,1), { MONO_RES_AUTO, 0} )},
+    {"rectified_left",  StreamInfo("rectified_left",  MONO_MAX_SIZE(1,1), { MONO_RES_AUTO, 0} )},
+    {"rectified_right", StreamInfo("rectified_right", MONO_MAX_SIZE(1,1), { MONO_RES_AUTO, 0} )},
 
     // {"depth",       StreamInfo("depth",     921600, { 720, 1280}    )},
     {"depth_raw",  StreamInfo("depth_raw",      MONO_MAX_SIZE(1,2), { MONO_RES_AUTO, 0}, 2 )},

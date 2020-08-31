@@ -22,7 +22,7 @@
 // TODO: remove next constant
 std::unordered_map<std::string, StreamInfo> g_streams_pc_to_myriad =
 {
-    {"config_h2d",     StreamInfo("config_h2d",     272667)},
+    {"config_h2d",     StreamInfo("config_h2d",     1024*1024)},
     {"host_capture",     StreamInfo("host_capture",     sizeof(CaptureMetadata))}
 };
 

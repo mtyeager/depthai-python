@@ -477,30 +477,30 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         else{
             
             HostDataReader mesh_reader;
+            const int expectec_mesh_size = sizeof(float) * mesh_size;
+
             // Reading left mesh into the vector
             if(!mesh_reader.init(config.depth.left_mesh_file)){
-                std::cerr << WARNING "depthai: Error opening left camera mesh file: " << config.depth.left_mesh_file << std::endl;
-                break;
+                std::cerr << WARNING "depthai: Error opening left camera mesh file: " ENDC << config.depth.left_mesh_file << std::endl;
+                //break;
+            } else {
+                int file_sz  = mesh_reader.getSize();
+                assert(file_sz == expectec_mesh_size);
+                mesh_reader.readData(reinterpret_cast<unsigned char*>(left_mesh_buff.data()), expectec_mesh_size);
+                mesh_reader.closeFile();
+                std::cout << "left mesh loaded with size :" << left_mesh_buff.size() << "  File size: " << file_sz << " expectec_mesh_size ->" << expectec_mesh_size << std::endl;
             }
-
-            const int expectec_mesh_size = sizeof(float) * mesh_size;
-            int file_sz  = mesh_reader.getSize();
-            assert(file_sz == expectec_mesh_size);
-            mesh_reader.readData(reinterpret_cast<unsigned char*>(left_mesh_buff.data()), expectec_mesh_size);
-            mesh_reader.closeFile();
-            std::cout << "left mesh loaded with size :" << left_mesh_buff.size() << "  File size: " << file_sz << " expectec_mesh_size ->" << expectec_mesh_size << std::endl;
-
 
             // Reading right mesh into the vector
             if(!mesh_reader.init(config.depth.right_mesh_file)){
-                std::cerr << WARNING "depthai: Error opening right camera mesh file: " << config.depth.right_mesh_file << std::endl;
-                break;
+                std::cerr << WARNING "depthai: Error opening right camera mesh file: " ENDC << config.depth.right_mesh_file << std::endl;
+                //break;
+            } else {
+                int file_sz = mesh_reader.getSize();
+                assert(file_sz == expectec_mesh_size);
+                mesh_reader.readData(reinterpret_cast<unsigned char*>(right_mesh_buff.data()), expectec_mesh_size);
+                mesh_reader.closeFile();
             }
-
-            file_sz = mesh_reader.getSize();
-            assert(file_sz == expectec_mesh_size);
-            mesh_reader.readData(reinterpret_cast<unsigned char*>(right_mesh_buff.data()), expectec_mesh_size);
-            mesh_reader.closeFile(); 
         }
 
 

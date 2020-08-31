@@ -73,6 +73,14 @@ bool HostPipelineConfig::initWithJSON(const json &json_obj)
             {
                 depth.calibration_file = depth_obj.at("calibration_file").get<std::string>();
             }
+            //mesh file for rectification in left camera
+            if(depth_obj.contains("left_mesh_file")){
+                depth.left_mesh_file = depth_obj.at("left_mesh_file").get<std::string>();
+            }
+            //mesh file for rectification in right camera
+            if(depth_obj.contains("right_mesh_file")){
+                depth.right_mesh_file = depth_obj.at("right_mesh_file").get<std::string>();
+            }
 
             // "type"
             if (depth_obj.contains("type"))

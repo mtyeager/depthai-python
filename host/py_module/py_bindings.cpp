@@ -452,6 +452,58 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
             }
         }
 
+        /** Sachin code --- starts here **/
+        //load mesh file
+        /** rows = 720/16 = 45 + 1 = 46
+         *  cols = 1280/16 = (80 + 1) * 2(y,x) = 162
+         **/
+        
+        const int mesh_size = 46*162;
+        std::vector<float> left_mesh_buff(mesh_size, 0);
+        std::vector<float> right_mesh_buff(mesh_size, 0);
+
+        std::cout << "left Mesh file: " << config.depth.left_mesh_file << std::endl;
+        std::cout << "right Mesh file: " << config.depth.right_mesh_file << std::endl;
+
+        if(config.depth.left_mesh_file.empty() && config.depth.right_mesh_file.empty()){
+            std::cout << "depthai: mesh file is not specified, will use Homography;\n";
+        }
+        else if(config.depth.left_mesh_file.empty()){
+            std::cout << "depthai: Only right camera mesh file is specified, Left camera mesh file not specified;\n";
+        }
+        else if(config.depth.right_mesh_file.empty()){
+            std::cout << "depthai: Only left camera mesh file is specified, Right camera mesh file not specified;\n";
+        }
+        else{
+            
+            HostDataReader mesh_reader;
+            // Reading left mesh into the vector
+            if(!mesh_reader.init(config.depth.left_mesh_file)){
+                std::cerr << WARNING "depthai: Error opening left camera mesh file: " << config.depth.left_mesh_file << std::endl;
+                break;
+            }
+
+            const int expectec_mesh_size = sizeof(float) * mesh_size;
+            int file_sz  = mesh_reader.getSize();
+            assert(file_sz == expectec_mesh_size);
+            mesh_reader.readData(reinterpret_cast<unsigned char*>(left_mesh_buff.data()), expectec_mesh_size);
+            mesh_reader.closeFile();
+            std::cout << "left mesh loaded with size :" << left_mesh_buff.size() << "  File size: " << file_sz << " expectec_mesh_size ->" << expectec_mesh_size << std::endl;
+
+
+            // Reading right mesh into the vector
+            if(!mesh_reader.init(config.depth.right_mesh_file)){
+                std::cerr << WARNING "depthai: Error opening right camera mesh file: " << config.depth.right_mesh_file << std::endl;
+                break;
+            }
+
+            file_sz = mesh_reader.getSize();
+            assert(file_sz == expectec_mesh_size);
+            mesh_reader.readData(reinterpret_cast<unsigned char*>(right_mesh_buff.data()), expectec_mesh_size);
+            mesh_reader.closeFile(); 
+        }
+
+
         bool rgb_connected = g_config_d2h.at("_cams").at("rgb").get<bool>();
         bool left_connected = g_config_d2h.at("_cams").at("left").get<bool>();
         bool right_connected = g_config_d2h.at("_cams").at("right").get<bool>();
@@ -503,7 +555,9 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         json_config_obj["board"]["revision"] = config.board_config.revision;
         json_config_obj["_board"] =
         {
-            {"_homography_right_to_left", homography_buff}
+            {"_homography_right_to_left", homography_buff},
+            {"mesh_left", left_mesh_buff},
+            {"mesh_right", right_mesh_buff}
         };
         json_config_obj["depth"]["padding_factor"] = config.depth.padding_factor;
         json_config_obj["depth"]["depth_limit_mm"] = (int)(config.depth.depth_limit_m * 1000);
@@ -595,11 +649,15 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
             }
         }
 
-
+        //29808*2 = 59616
         // host -> "config_h2d" -> device
         std::string pipeline_config_str_packed = json_config_obj.dump();
         std::cout << "config_h2d json:\n" << pipeline_config_str_packed << "\n";
-        // resize, as xlink expects exact;y the same size for input:
+        // resize, as xlink expects exactly the same size for input:
+        std::cout << "size of input string json_config_obj to config_h2d is ->" << pipeline_config_str_packed.size() << std::endl;
+
+        std::cout << "size of json_config_obj that is expected to be sent to config_h2d is ->" << g_streams_pc_to_myriad.at("config_h2d").size << std::endl;
+
         assert(pipeline_config_str_packed.size() < g_streams_pc_to_myriad.at("config_h2d").size);
         pipeline_config_str_packed.resize(g_streams_pc_to_myriad.at("config_h2d").size, 0);
 

@@ -21,6 +21,8 @@ struct HostPipelineConfig
 
     struct Depth {
         std::string calibration_file;
+        std::string left_mesh_file;
+        std::string right_mesh_file;
         std::string type;
         float       padding_factor = 0.3f;
         float       depth_limit_m = 10.0f;

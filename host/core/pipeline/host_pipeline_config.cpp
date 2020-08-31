@@ -132,6 +132,20 @@ bool HostPipelineConfig::initWithJSON(const json &json_obj)
             {
                 depth.lr_check = depth_obj.at("lr_check").get<bool>();
             }
+
+            if (depth_obj.contains("warp_rectify"))
+            {
+                auto& warp_obj = depth_obj.at("warp_rectify");
+
+                if (warp_obj.contains("use_mesh"))
+                    depth.warp.use_mesh = warp_obj.at("use_mesh").get<bool>();
+
+                if (warp_obj.contains("mirror_frame"))
+                    depth.warp.mirror_frame = warp_obj.at("mirror_frame").get<bool>();
+
+                if (warp_obj.contains("edge_fill_color"))
+                    depth.warp.edge_fill_color = warp_obj.at("edge_fill_color").get<int16_t>();
+            }
         }
 
         // "ai"

@@ -29,6 +29,11 @@ struct HostPipelineConfig
         float       confidence_threshold = 0.5f;
         uint8_t     median_kernel_size = 7;
         bool        lr_check = false;
+        struct WarpRectify {
+            bool use_mesh = false;
+            bool mirror_frame = true;
+            int16_t edge_fill_color = -1; // 0..255, or -1 to replicate pixels
+        } warp;
     } depth;
 
     struct AI

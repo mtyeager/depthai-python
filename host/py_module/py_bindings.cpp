@@ -564,6 +564,12 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         json_config_obj["depth"]["confidence_threshold"] = config.depth.confidence_threshold;
         json_config_obj["depth"]["median_kernel_size"] = config.depth.median_kernel_size;
         json_config_obj["depth"]["lr_check"] = config.depth.lr_check;
+        json_config_obj["depth"]["warp_rectify"] =
+        {
+                {"use_mesh",        config.depth.warp.use_mesh},
+                {"mirror_frame",    config.depth.warp.mirror_frame},
+                {"edge_fill_color", config.depth.warp.edge_fill_color},
+        };
 
         json_config_obj["_load_inBlob"] = true;
         json_config_obj["_pipeline"] =

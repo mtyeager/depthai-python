@@ -461,6 +461,7 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         std::vector<float> left_mesh_buff(mesh_size, 0);
         std::vector<float> right_mesh_buff(mesh_size, 0);
 
+      if (config.depth.warp.use_mesh) {
         std::cout << "left Mesh file: " << config.depth.left_mesh_file << std::endl;
         std::cout << "right Mesh file: " << config.depth.right_mesh_file << std::endl;
 
@@ -501,6 +502,10 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
                 mesh_reader.closeFile();
             }
         }
+      } else {
+          left_mesh_buff.resize(1);
+          right_mesh_buff.resize(1);
+      }
 
 
         bool rgb_connected = g_config_d2h.at("_cams").at("rgb").get<bool>();

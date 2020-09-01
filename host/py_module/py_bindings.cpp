@@ -419,12 +419,8 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
 
         // pipeline configurations json
         // homography
-        std::vector<float> homography_buff = {
-            // default for BW0250TG:
-             9.8806816e-01,  2.9474013e-03,  5.0676174e+00,
-            -8.7650679e-03,  9.9214733e-01, -8.7952757e+00,
-            -8.4495878e-06, -3.6034894e-06,  1.0000000e+00
-        };
+        const int homography_count = 9 * 5 + 3; /*H1,H2,M1,M2,R,T*/
+        std::vector<float> homography_buff(homography_count);
         bool stereo_center_crop = false;
 
         if (config.depth.calibration_file.empty())
@@ -440,15 +436,18 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
                 break;
             }
 
-            const int homography_size = sizeof(float) * 9;
+            const int homography_size = sizeof(float) * homography_count;
             int sz = calibration_reader.getSize();
-            assert(sz >= homography_size);
-            calibration_reader.readData(reinterpret_cast<unsigned char*>(homography_buff.data()), homography_size);
-            int flags_size = sz - homography_size;
-            if (flags_size > 0)
-            {
-                assert(flags_size == 1);
-                calibration_reader.readData(reinterpret_cast<unsigned char*>(&stereo_center_crop), 1);
+            if (sz < homography_size) {
+                std::cerr << WARNING "Calibration file size " << sz << ENDC " < smaller than expected, data ignored. May need to recalibrate\n";
+            } else {
+                calibration_reader.readData(reinterpret_cast<unsigned char*>(homography_buff.data()), homography_size);
+                int flags_size = sz - homography_size;
+                if (flags_size > 0)
+                {
+                    assert(flags_size == 1);
+                    calibration_reader.readData(reinterpret_cast<unsigned char*>(&stereo_center_crop), 1);
+                }
             }
         }
 

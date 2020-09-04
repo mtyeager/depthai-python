@@ -77,6 +77,11 @@ void init_binding_device(pybind11::module& m){
             "Returns NN bounding-box to depth mapping as a dict of coords: off_x, off_y, max_w, max_h."
         )
 
+        .def(
+            "get_device_model",
+            &Device::get_device_model,
+            "Gets the device model string"
+        )
 
         
         ;

@@ -2,41 +2,40 @@
 #include <fstream>
 #include <iostream>
 #include <list>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
-#include <map>
 
 #include <boost/algorithm/string/replace.hpp>
-#include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 
-#include "../core/device_support_listener.hpp"
-#include "../core/host_data_packet.hpp"
-#include "../core/host_data_reader.hpp"
-#include "../core/nnet/tensor_info.hpp"
-#include "../core/nnet/tensor_info_helper.hpp"
-#include "../core/nnet/tensor_entry.hpp"
-#include "../core/nnet/nnet_packet.hpp"
-#include "../core/nnet/tensor_entry_container.hpp"
-#include "../core/pipeline/host_pipeline.hpp"
-#include "../core/pipeline/host_pipeline_config.hpp"
-#include "../core/pipeline/cnn_host_pipeline.hpp"
-#include "../core/disparity_stream_post_processor.hpp"
 #include "../../shared/cnn_info.hpp"
 #include "../../shared/depthai_constants.hpp"
 #include "../../shared/json_helper.hpp"
 #include "../../shared/version.hpp"
 #include "../../shared/xlink/xlink_wrapper.hpp"
+#include "../core/device_support_listener.hpp"
+#include "../core/disparity_stream_post_processor.hpp"
+#include "../core/host_data_packet.hpp"
+#include "../core/host_data_reader.hpp"
 #include "../core/host_json_helper.hpp"
+#include "../core/nnet/nnet_packet.hpp"
+#include "../core/nnet/tensor_entry.hpp"
+#include "../core/nnet/tensor_entry_container.hpp"
+#include "../core/nnet/tensor_info.hpp"
+#include "../core/nnet/tensor_info_helper.hpp"
+#include "../core/pipeline/cnn_host_pipeline.hpp"
+#include "../core/pipeline/host_pipeline.hpp"
+#include "../core/pipeline/host_pipeline_config.hpp"
 #include "host_capture_command.hpp"
 #include "model_downloader.hpp"
 
-
-#include "capture_af_bindings.hpp"
 #include "../../shared/metadata/capture_metadata.hpp"
+#include "capture_af_bindings.hpp"
 
 #define WARNING "\033[1;5;31m"
 #define ENDC "\033[0m"
@@ -47,17 +46,21 @@ std::string config_backup;
 std::string cmd_backup;
 std::string usb_device_backup;
 std::shared_ptr<CNNHostPipeline> gl_result = nullptr;
-
+std::vector<std::vector<float>> H1_l;
+std::vector<std::vector<float>> M1_l;
+std::vector<std::vector<float>> H2_r;
+std::vector<std::vector<float>> M2_r;
+std::vector<std::vector<float>> R;
+std::vector<float> T;
+uint32_t version;
 static volatile std::atomic<int> wdog_keep;
 
 bool soft_deinit_device();
 bool init_device(
-    const std::string &device_cmd_file,
-    const std::string &usb_device
-);
+    const std::string& device_cmd_file,
+    const std::string& usb_device);
 std::shared_ptr<CNNHostPipeline> create_pipeline(
-    const std::string &config_json_str
-);
+    const std::string& config_json_str);
 
 static int wdog_thread_alive = 0;
 void wdog_thread(int& wd_timeout_ms)
@@ -65,57 +68,47 @@ void wdog_thread(int& wd_timeout_ms)
     std::cout << "watchdog started " << wd_timeout_ms << std::endl;
     const int sleep_chunk = 100;
     const int sleep_nr = wd_timeout_ms / sleep_chunk;
-    while(wdog_thread_alive)
-    {
+    while (wdog_thread_alive) {
         wdog_keep = 0;
-        for(int i = 0; i < sleep_nr; i++)
-        {
+        for (int i = 0; i < sleep_nr; i++) {
             std::this_thread::sleep_for(std::chrono::milliseconds(sleep_chunk));
-            if(wdog_thread_alive == 0)
-            {
+            if (wdog_thread_alive == 0) {
                 break;
             }
         }
-        if(wdog_keep == 0 && wdog_thread_alive == 1)
-        {
+        if (wdog_keep == 0 && wdog_thread_alive == 1) {
             std::cout << "watchdog triggered " << std::endl;
             soft_deinit_device();
             bool init;
-            for(int retry = 0; retry < 1; retry++)
-            {
+            for (int retry = 0; retry < 1; retry++) {
                 init = init_device(cmd_backup, usb_device_backup);
-                if(init)
-                {
+                if (init) {
                     break;
+                }
             }
-            }
-            if(!init)
-            {
+            if (!init) {
                 exit(9);
             }
             create_pipeline(config_backup);
         }
     }
-
 }
 
 static std::thread wd_thread;
 static int wd_timeout_ms = 6000;
-int  wdog_start(void)
+int wdog_start(void)
 {
     static int once = 1;
-    if(once)
-    {
+    if (once) {
         wdog_thread_alive = 1;
-        wd_thread = std::thread(wdog_thread, std::ref(wd_timeout_ms)); 
+        wd_thread = std::thread(wdog_thread, std::ref(wd_timeout_ms));
         once = 0;
     }
     return 0;
 }
-int  wdog_stop(void)
+int wdog_stop(void)
 {
-    if(wdog_thread_alive)
-    {
+    if (wdog_thread_alive) {
         wdog_thread_alive = 0;
         wd_thread.join();
     }
@@ -128,41 +121,36 @@ void wdog_keepalive(void)
 {
     wdog_keep = 1;
 }
-
 };
 
 // TODO: REMOVE, IT'S TEMPORARY (for test only)
-static XLinkGlobalHandler_t g_xlink_global_handler =
-{
-    .profEnable = 0,  
+static XLinkGlobalHandler_t g_xlink_global_handler = {
+    .profEnable = 0,
     .profilingData = {
-        .totalReadTime   = 0.f,
-        .totalWriteTime  = 0.f,
-        .totalReadBytes  = 0,
+        .totalReadTime = 0.f,
+        .totalWriteTime = 0.f,
+        .totalReadBytes = 0,
         .totalWriteBytes = 0,
-        .totalBootCount  = 0,
-        .totalBootTime   = 0.f
-    },
-    .loglevel   = 0,
-    .protocol   = USB_VSC
+        .totalBootCount = 0,
+        .totalBootTime = 0.f },
+    .loglevel = 0,
+    .protocol = USB_VSC
 };
 
-XLinkHandler_t g_xlink_device_handler =
-{
-    .devicePath  = NULL,
+XLinkHandler_t g_xlink_device_handler = {
+    .devicePath = NULL,
     .devicePath2 = NULL,
-    .linkId      = 0
+    .linkId = 0
 };
 // TODO: END OF REMOVE
-
 
 // all global data is deleted with "_cleanup" python object
 std::unique_ptr<XLinkWrapper> g_xlink; // TODO: make sync
 json g_config_d2h;
 
 std::unique_ptr<DisparityStreamPostProcessor> g_disparity_post_proc;
-std::unique_ptr<DeviceSupportListener>        g_device_support_listener;
-std::unique_ptr<HostCaptureCommand>           g_host_caputure_command;
+std::unique_ptr<DeviceSupportListener> g_device_support_listener;
+std::unique_ptr<HostCaptureCommand> g_host_caputure_command;
 
 std::map<std::string, int> nn_to_depth_mapping = {
     { "off_x", 0 },
@@ -171,22 +159,18 @@ std::map<std::string, int> nn_to_depth_mapping = {
     { "max_h", 0 },
 };
 
-
 bool init_device(
-    const std::string &device_cmd_file,
-    const std::string &usb_device
-)
+    const std::string& device_cmd_file,
+    const std::string& usb_device)
 {
     cmd_backup = device_cmd_file;
     usb_device_backup = usb_device;
     bool result = false;
     std::string error_msg;
 
-    do
-    {
+    do {
         // xlink
-        if (nullptr != g_xlink)
-        {
+        if (nullptr != g_xlink) {
             error_msg = "Device is already initialized.";
             std::cout << error_msg << "\n";
             break;
@@ -199,9 +183,7 @@ bool init_device(
                 &g_xlink_device_handler,
                 device_cmd_file,
                 usb_device,
-                true)
-            )
-        {
+                true)) {
             std::cout << "depthai: Error initializing xlink\n";
             break;
         }
@@ -216,15 +198,12 @@ bool init_device(
             StreamInfo si("config_d2h", 102400);
 
             int config_file_length = g_xlink->openReadAndCloseStream(
-                    si,
-                    config_d2h_str
-                    );
-            if(config_file_length == -1)
-            {
+                si,
+                config_d2h_str);
+            if (config_file_length == -1) {
                 break;
             }
-            if (!getJSONFromString(config_d2h_str, g_config_d2h))
-            {
+            if (!getJSONFromString(config_d2h_str, g_config_d2h)) {
                 std::cout << "depthai: error parsing config_d2h\n";
             }
         }
@@ -232,8 +211,7 @@ bool init_device(
         bool rgb_connected = g_config_d2h.at("_cams").at("rgb").get<bool>();
         bool left_connected = g_config_d2h.at("_cams").at("left").get<bool>();
         bool right_connected = g_config_d2h.at("_cams").at("right").get<bool>();
-        if(!rgb_connected && (left_connected ^ right_connected))
-        {
+        if (!rgb_connected && (left_connected ^ right_connected)) {
             std::cerr << WARNING "FATAL ERROR: No cameras detected on the board. \n" ENDC;
             break;
         }
@@ -241,22 +219,20 @@ bool init_device(
         // check version
         {
             std::string device_version = g_config_d2h.at("_version").get<std::string>();
-            if (device_version != c_depthai_version)
-            {
+            if (device_version != c_depthai_version) {
                 printf("Version does not match (%s & %s)\n",
                     device_version.c_str(), c_depthai_version);
                 break;
             }
 
             std::string device_dev_version = g_config_d2h.at("_dev_version").get<std::string>();
-            if (device_dev_version != c_depthai_dev_version)
-            {
+            if (device_dev_version != c_depthai_dev_version) {
                 printf("WARNING: Version (dev) does not match (%s & %s)\n",
                     device_dev_version.c_str(), c_depthai_dev_version);
             }
         }
-    
-        uint32_t version = g_config_d2h.at("eeprom").at("version").get<int>();
+
+        version = g_config_d2h.at("eeprom").at("version").get<int>();
         printf("EEPROM data:");
         if (version == -1) {
             printf(" invalid / unprogrammed\n");
@@ -268,8 +244,8 @@ bool init_device(
             bool stereo_center_crop = false;
             if (version >= 2) {
                 board_name = g_config_d2h.at("eeprom").at("board_name").get<std::string>();
-                board_rev  = g_config_d2h.at("eeprom").at("board_rev").get<std::string>();
-                rgb_fov_deg= g_config_d2h.at("eeprom").at("rgb_fov_deg").get<float>();
+                board_rev = g_config_d2h.at("eeprom").at("board_rev").get<std::string>();
+                rgb_fov_deg = g_config_d2h.at("eeprom").at("rgb_fov_deg").get<float>();
             }
             if (version >= 3) {
                 stereo_center_crop = g_config_d2h.at("eeprom").at("stereo_center_crop").get<bool>();
@@ -280,7 +256,7 @@ bool init_device(
             bool swap_left_and_right_cameras = g_config_d2h.at("eeprom").at("swap_left_and_right_cameras").get<bool>();
             std::vector<float> calib;
             printf("  Board name     : %s\n", board_name.empty() ? "<NOT-SET>" : board_name.c_str());
-            printf("  Board rev      : %s\n", board_rev.empty()  ? "<NOT-SET>" : board_rev.c_str());
+            printf("  Board rev      : %s\n", board_rev.empty() ? "<NOT-SET>" : board_rev.c_str());
             printf("  HFOV L/R       : %g deg\n", left_fov_deg);
             printf("  HFOV RGB       : %g deg\n", rgb_fov_deg);
             printf("  L-R   distance : %g cm\n", 100 * left_to_right_distance_m);
@@ -293,42 +269,70 @@ bool init_device(
                 calib = g_config_d2h.at("eeprom").at("calib_old_H").get<std::vector<float>>();
                 for (int i = 0; i < 9; i++) {
                     printf(" %11.6f,", calib.at(i));
-                    if (i % 3 == 2) printf("\n");
+                    if (i % 3 == 2)
+                        printf("\n");
                 }
             } else {
                 printf("  Calibration homography H1 (left):\n");
                 calib = g_config_d2h.at("eeprom").at("calib_H1_L").get<std::vector<float>>();
+                std::vector<float> temp;
                 for (int i = 0; i < 9; i++) {
                     printf(" %11.6f,", calib.at(i));
-                    if (i % 3 == 2) printf("\n");
+                    temp.push_back(calib.at(i));
+                    if (i % 3 == 2) {
+                        printf("\n");
+                        H1_l.push_back(temp);
+                        temp.clear();
+                    }
                 }
-
+                for (int i = 0; i < 9; ++i) {
+                }
                 printf("  Calibration homography H2 (right):\n");
                 calib = g_config_d2h.at("eeprom").at("calib_H2_R").get<std::vector<float>>();
                 for (int i = 0; i < 9; i++) {
                     printf(" %11.6f,", calib.at(i));
-                    if (i % 3 == 2) printf("\n");
+                    temp.push_back(calib.at(i));
+                    if (i % 3 == 2) {
+                        printf("\n");
+                        H2_r.push_back(temp);
+                        temp.clear();
+                    }
                 }
 
                 printf("  Calibration intrinsic matrix M1 (left):\n");
                 calib = g_config_d2h.at("eeprom").at("calib_M1_L").get<std::vector<float>>();
                 for (int i = 0; i < 9; i++) {
                     printf(" %11.6f,", calib.at(i));
-                    if (i % 3 == 2) printf("\n");
+                    temp.push_back(calib.at(i));
+                    if (i % 3 == 2) {
+                        printf("\n");
+                        M1_l.push_back(temp);
+                        temp.clear();
+                    }
                 }
 
                 printf("  Calibration intrinsic matrix M2 (right):\n");
                 calib = g_config_d2h.at("eeprom").at("calib_M2_R").get<std::vector<float>>();
                 for (int i = 0; i < 9; i++) {
                     printf(" %11.6f,", calib.at(i));
-                    if (i % 3 == 2) printf("\n");
+                    temp.push_back(calib.at(i));
+                    if (i % 3 == 2) {
+                        printf("\n");
+                        M2_r.push_back(temp);
+                        temp.clear();
+                    }
                 }
 
                 printf("  Calibration rotation matrix R:\n");
                 calib = g_config_d2h.at("eeprom").at("calib_R").get<std::vector<float>>();
                 for (int i = 0; i < 9; i++) {
                     printf(" %11.6f,", calib.at(i));
-                    if (i % 3 == 2) printf("\n");
+                    temp.push_back(calib.at(i));
+                    if (i % 3 == 2) {
+                        printf("\n");
+                        R.push_back(temp);
+                        temp.clear();
+                    }
                 }
 
                 printf("  Calibration translation matrix T:\n");
@@ -336,17 +340,14 @@ bool init_device(
                 for (int i = 0; i < 3; i++) {
                     printf(" %11.6f,\n", calib.at(i));
                 }
+                T = calib;
             }
         }
-
-
-
 
         result = true;
     } while (false);
 
-    if (!result)
-    {
+    if (!result) {
         g_xlink = nullptr;
         // TODO: add custom python exception for passing messages
         // throw std::exception();
@@ -357,41 +358,89 @@ bool init_device(
 
 bool soft_deinit_device()
 {
-    if(g_host_caputure_command != nullptr)
+    if (g_host_caputure_command != nullptr)
         g_host_caputure_command->sendCustomDeviceResetRequest();
     g_xlink = nullptr;
     g_disparity_post_proc = nullptr;
     g_device_support_listener = nullptr;
-	g_host_caputure_command = nullptr;
+    g_host_caputure_command = nullptr;
     return true;
 }
 
 bool deinit_device()
 {
-    wdog_stop();       
+    wdog_stop();
     soft_deinit_device();
     gl_result = nullptr;
     return true;
+}
+
+std::vector<std::vector<float>> get_left_intrinsic()
+{
+    if (version < 4) {
+        std::cerr << "legacy, get_left_intrinsic() is not available in version " << version << "\n recalibrate and load the new calibration to the device. \n";
+        abort();
+    }
+    return M1_l;
+}
+
+std::vector<std::vector<float>> get_left_homography()
+{
+    if (version < 4) {
+        std::cerr << "legacy, get_left_homography() is not available in version " << version << "\n recalibrate and load the new calibration to the device. \n";
+        abort();
+    }
+    return H1_l;
+}
+
+std::vector<std::vector<float>> get_right_intrinsic()
+{
+    if (version < 4) {
+        std::cerr << "legacy, get_right_intrinsic() is not available in version " << version << "\n recalibrate and load the new calibration to the device. \n";
+        abort();
+    }
+    return M2_r;
+}
+
+std::vector<std::vector<float>> get_right_homography()
+{
+    if (version < 4) {
+        std::cerr << "legacy, get_right_homography() is not available in version " << version << "\n recalibrate and load the new calibration to the device. \n";
+        abort();
+    }
+    return H2_r;
+}
+
+std::vector<std::vector<float>> get_rotation()
+{
+    if (version < 4) {
+        std::cerr << "legacy, get_rotation() is not available in version " << version << "\n recalibrate and load the new calibration to the device. \n";
+        abort();
+    }
+    return R;
+}
+
+std::vector<float> get_Translation()
+{
+    if (version < 4) {
+        std::cerr << "legacy, get_Translation() is not available in version " << version << "\n recalibrate and load the new calibration to the device. \n";
+        abort();
+    }
+    return T;
 }
 
 std::vector<std::string> get_available_steams()
 {
     std::vector<std::string> result;
 
-    if (g_config_d2h.is_object() &&
-        g_config_d2h.contains("_available_streams") &&
-        g_config_d2h.at("_available_streams").is_array()
-        )
-    {
-        for (const auto &obj : g_config_d2h.at("_available_streams"))
-        {
+    if (g_config_d2h.is_object() && g_config_d2h.contains("_available_streams") && g_config_d2h.at("_available_streams").is_array()) {
+        for (const auto& obj : g_config_d2h.at("_available_streams")) {
             result.push_back(obj.get<std::string>());
         }
     }
 
     return result;
 }
-
 
 std::map<std::string, int> get_nn_to_depth_bbox_mapping()
 {
@@ -404,33 +453,28 @@ int download_blob(std::string model_name, int nr_shaves, int nr_cmx_slices, int 
 }
 
 std::shared_ptr<CNNHostPipeline> create_pipeline(
-    const std::string &config_json_str
-)
+    const std::string& config_json_str)
 {
     config_backup = config_json_str;
 
     bool init_ok = false;
-    do
-    {
+    do {
         // check xlink
-        if (nullptr == g_xlink)
-        {
+        if (nullptr == g_xlink) {
             std::cerr << WARNING "device is not initialized\n" ENDC;
             break;
         }
 
         // str -> json
         json config_json;
-        if (!getJSONFromString(config_json_str, config_json))
-        {
+        if (!getJSONFromString(config_json_str, config_json)) {
             std::cerr << WARNING "Error: Cant parse json config :" << config_json_str << "\n" ENDC;
             break;
         }
 
         // json -> configurations
         HostPipelineConfig config;
-        if (!config.initWithJSON(config_json))
-        {
+        if (!config.initWithJSON(config_json)) {
             std::cerr << "Error: Cant init configs with json: " << config_json.dump() << "\n";
             break;
         }
@@ -438,29 +482,21 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         int num_stages = config.ai.blob_file2.empty() ? 1 : 2;
 
         // read tensor info
-        std::vector<TensorInfo>       tensors_info;
-        if (parseTensorInfosFromJsonFile(config.ai.blob_file_config, tensors_info))
-        {
+        std::vector<TensorInfo> tensors_info;
+        if (parseTensorInfosFromJsonFile(config.ai.blob_file_config, tensors_info)) {
             std::cout << "CNN configurations read: " << config.ai.blob_file_config.c_str() << "\n";
-        }
-        else
-        {
+        } else {
             std::cerr << WARNING "ERROR: There is no cnn configuration file or error in it\'s parsing: " << config.ai.blob_file_config.c_str() << "\n";
             break;
         }
 
-        if (num_stages > 1)
-        {
-            if (parseTensorInfosFromJsonFile(config.ai.blob_file_config2, tensors_info))
-            {
+        if (num_stages > 1) {
+            if (parseTensorInfosFromJsonFile(config.ai.blob_file_config2, tensors_info)) {
                 std::cout << "CNN configurations read: " << config.ai.blob_file_config2.c_str() << "\n";
-            }
-            else
-            {
+            } else {
                 std::cout << "There is no cnn configuration file or error in it\'s parsing: " << config.ai.blob_file_config2.c_str() << "\n";
             }
         }
-
 
         // pipeline configurations json
         // homography
@@ -468,15 +504,11 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         std::vector<float> homography_buff(homography_count);
         bool stereo_center_crop = false;
 
-        if (config.depth.calibration_file.empty())
-        {
+        if (config.depth.calibration_file.empty()) {
             std::cout << "depthai: Calibration file is not specified, will use default setting;\n";
-        }
-        else
-        {
+        } else {
             HostDataReader calibration_reader;
-            if (!calibration_reader.init(config.depth.calibration_file))
-            {
+            if (!calibration_reader.init(config.depth.calibration_file)) {
                 std::cerr << WARNING "depthai: Error opening calibration file: " << config.depth.calibration_file << "\n" ENDC;
                 break;
             }
@@ -488,8 +520,7 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
             } else {
                 calibration_reader.readData(reinterpret_cast<unsigned char*>(homography_buff.data()), homography_size);
                 int flags_size = sz - homography_size;
-                if (flags_size > 0)
-                {
+                if (flags_size > 0) {
                     assert(flags_size == 1);
                     calibration_reader.readData(reinterpret_cast<unsigned char*>(&stereo_center_crop), 1);
                 }
@@ -501,84 +532,74 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         /** rows = 720/16 = 45 + 1 = 46
          *  cols = 1280/16 = (80 + 1) * 2(y,x) = 162
          **/
-        
-        const int mesh_size = 46*162;
+
+        const int mesh_size = 46 * 162;
         std::vector<float> left_mesh_buff(mesh_size, 0);
         std::vector<float> right_mesh_buff(mesh_size, 0);
 
-      if (config.depth.warp.use_mesh) {
-        std::cout << "left Mesh file: " << config.depth.left_mesh_file << std::endl;
-        std::cout << "right Mesh file: " << config.depth.right_mesh_file << std::endl;
+        if (config.depth.warp.use_mesh) {
+            std::cout << "left Mesh file: " << config.depth.left_mesh_file << std::endl;
+            std::cout << "right Mesh file: " << config.depth.right_mesh_file << std::endl;
 
-        if(config.depth.left_mesh_file.empty() && config.depth.right_mesh_file.empty()){
-            std::cout << "depthai: mesh file is not specified, will use Homography;\n";
-        }
-        else if(config.depth.left_mesh_file.empty()){
-            std::cout << "depthai: Only right camera mesh file is specified, Left camera mesh file not specified;\n";
-        }
-        else if(config.depth.right_mesh_file.empty()){
-            std::cout << "depthai: Only left camera mesh file is specified, Right camera mesh file not specified;\n";
-        }
-        else{
-            
-            HostDataReader mesh_reader;
-            const int expectec_mesh_size = sizeof(float) * mesh_size;
-
-            // Reading left mesh into the vector
-            if(!mesh_reader.init(config.depth.left_mesh_file)){
-                std::cerr << WARNING "depthai: Error opening left camera mesh file: " ENDC << config.depth.left_mesh_file << std::endl;
-                //break;
+            if (config.depth.left_mesh_file.empty() && config.depth.right_mesh_file.empty()) {
+                std::cout << "depthai: mesh file is not specified, will use Homography;\n";
+            } else if (config.depth.left_mesh_file.empty()) {
+                std::cout << "depthai: Only right camera mesh file is specified, Left camera mesh file not specified;\n";
+            } else if (config.depth.right_mesh_file.empty()) {
+                std::cout << "depthai: Only left camera mesh file is specified, Right camera mesh file not specified;\n";
             } else {
-                int file_sz  = mesh_reader.getSize();
-                assert(file_sz == expectec_mesh_size);
-                mesh_reader.readData(reinterpret_cast<unsigned char*>(left_mesh_buff.data()), expectec_mesh_size);
-                mesh_reader.closeFile();
-                std::cout << "left mesh loaded with size :" << left_mesh_buff.size() << "  File size: " << file_sz << " expectec_mesh_size ->" << expectec_mesh_size << std::endl;
-            }
 
-            // Reading right mesh into the vector
-            if(!mesh_reader.init(config.depth.right_mesh_file)){
-                std::cerr << WARNING "depthai: Error opening right camera mesh file: " ENDC << config.depth.right_mesh_file << std::endl;
-                //break;
-            } else {
-                int file_sz = mesh_reader.getSize();
-                assert(file_sz == expectec_mesh_size);
-                mesh_reader.readData(reinterpret_cast<unsigned char*>(right_mesh_buff.data()), expectec_mesh_size);
-                mesh_reader.closeFile();
+                HostDataReader mesh_reader;
+                const int expectec_mesh_size = sizeof(float) * mesh_size;
+
+                // Reading left mesh into the vector
+                if (!mesh_reader.init(config.depth.left_mesh_file)) {
+                    std::cerr << WARNING "depthai: Error opening left camera mesh file: " ENDC << config.depth.left_mesh_file << std::endl;
+                    //break;
+                } else {
+                    int file_sz = mesh_reader.getSize();
+                    assert(file_sz == expectec_mesh_size);
+                    mesh_reader.readData(reinterpret_cast<unsigned char*>(left_mesh_buff.data()), expectec_mesh_size);
+                    mesh_reader.closeFile();
+                    std::cout << "left mesh loaded with size :" << left_mesh_buff.size() << "  File size: " << file_sz << " expectec_mesh_size ->" << expectec_mesh_size << std::endl;
+                }
+
+                // Reading right mesh into the vector
+                if (!mesh_reader.init(config.depth.right_mesh_file)) {
+                    std::cerr << WARNING "depthai: Error opening right camera mesh file: " ENDC << config.depth.right_mesh_file << std::endl;
+                    //break;
+                } else {
+                    int file_sz = mesh_reader.getSize();
+                    assert(file_sz == expectec_mesh_size);
+                    mesh_reader.readData(reinterpret_cast<unsigned char*>(right_mesh_buff.data()), expectec_mesh_size);
+                    mesh_reader.closeFile();
+                }
             }
+        } else {
+            left_mesh_buff.resize(1);
+            right_mesh_buff.resize(1);
         }
-      } else {
-          left_mesh_buff.resize(1);
-          right_mesh_buff.resize(1);
-      }
-
 
         bool rgb_connected = g_config_d2h.at("_cams").at("rgb").get<bool>();
         bool left_connected = g_config_d2h.at("_cams").at("left").get<bool>();
         bool right_connected = g_config_d2h.at("_cams").at("right").get<bool>();
-        if(config.board_config.swap_left_and_right_cameras)
-        {
+        if (config.board_config.swap_left_and_right_cameras) {
             bool temp = left_connected;
             left_connected = right_connected;
             right_connected = temp;
         }
 
-
-        if(!rgb_connected)
-        {
+        if (!rgb_connected) {
             std::cout << "RGB camera (IMX378) is not detected on board! \n";
-            if(config.ai.camera_input == "rgb")
-            {
+            if (config.ai.camera_input == "rgb") {
                 std::cerr << WARNING "WARNING: NN inference was requested on RGB camera (IMX378), defaulting to right stereo camera (OV9282)! \n" ENDC;
                 config.ai.camera_input = "right";
             }
         }
-        if(left_connected ^ right_connected)
-        {
+        if (left_connected ^ right_connected) {
             std::string cam_not_connected = (left_connected == false) ? "Left" : "Right";
-            std::cerr << WARNING "WARNING: "<< cam_not_connected << " stereo camera (OV9282) is not detected on board! \n" ENDC;
-            if(config.ai.camera_input != "rgb")
-            {
+            std::cerr << WARNING "WARNING: " << cam_not_connected << " stereo camera (OV9282) is not detected on board! \n" ENDC;
+            if (config.ai.camera_input != "rgb") {
                 std::cerr << WARNING "WARNING: NN inference was requested on " << config.ai.camera_input << " stereo camera (OV9282), defaulting to RGB camera (IMX378)! \n" ENDC;
                 config.ai.camera_input = "rgb";
             }
@@ -587,8 +608,8 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         json json_config_obj;
 
         // Add video configuration if specified
-        if(config_json.count("video_config") > 0){
-            json_config_obj["video_config"] = config_json["video_config"]; 
+        if (config_json.count("video_config") > 0) {
+            json_config_obj["video_config"] = config_json["video_config"];
         }
 
         json_config_obj["board"]["clear-eeprom"] = config.board_config.clear_eeprom;
@@ -602,47 +623,41 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         json_config_obj["board"]["stereo_center_crop"] = config.board_config.stereo_center_crop || stereo_center_crop;
         json_config_obj["board"]["name"] = config.board_config.name;
         json_config_obj["board"]["revision"] = config.board_config.revision;
-        json_config_obj["_board"] =
-        {
-            {"calib_data", homography_buff},
-            {"mesh_left", left_mesh_buff},
-            {"mesh_right", right_mesh_buff}
+        json_config_obj["_board"] = {
+            { "calib_data", homography_buff },
+            { "mesh_left", left_mesh_buff },
+            { "mesh_right", right_mesh_buff }
         };
         json_config_obj["depth"]["padding_factor"] = config.depth.padding_factor;
         json_config_obj["depth"]["depth_limit_mm"] = (int)(config.depth.depth_limit_m * 1000);
         json_config_obj["depth"]["confidence_threshold"] = config.depth.confidence_threshold;
         json_config_obj["depth"]["median_kernel_size"] = config.depth.median_kernel_size;
         json_config_obj["depth"]["lr_check"] = config.depth.lr_check;
-        json_config_obj["depth"]["warp_rectify"] =
-        {
-                {"use_mesh",        config.depth.warp.use_mesh},
-                {"mirror_frame",    config.depth.warp.mirror_frame},
-                {"edge_fill_color", config.depth.warp.edge_fill_color},
+        json_config_obj["depth"]["warp_rectify"] = {
+            { "use_mesh", config.depth.warp.use_mesh },
+            { "mirror_frame", config.depth.warp.mirror_frame },
+            { "edge_fill_color", config.depth.warp.edge_fill_color },
         };
 
         json_config_obj["_load_inBlob"] = true;
-        json_config_obj["_pipeline"] =
-        {
-            {"_streams", json::array()}
+        json_config_obj["_pipeline"] = {
+            { "_streams", json::array() }
         };
 
-        json_config_obj["camera"]["rgb"]["resolution_w"]  = config.rgb_cam_config.resolution_w;
-        json_config_obj["camera"]["rgb"]["resolution_h"]  = config.rgb_cam_config.resolution_h;
-        json_config_obj["camera"]["rgb"]["fps"]           = config.rgb_cam_config.fps;
+        json_config_obj["camera"]["rgb"]["resolution_w"] = config.rgb_cam_config.resolution_w;
+        json_config_obj["camera"]["rgb"]["resolution_h"] = config.rgb_cam_config.resolution_h;
+        json_config_obj["camera"]["rgb"]["fps"] = config.rgb_cam_config.fps;
         json_config_obj["camera"]["mono"]["resolution_w"] = config.mono_cam_config.resolution_w;
         json_config_obj["camera"]["mono"]["resolution_h"] = config.mono_cam_config.resolution_h;
-        json_config_obj["camera"]["mono"]["fps"]          = config.mono_cam_config.fps;
+        json_config_obj["camera"]["mono"]["fps"] = config.mono_cam_config.fps;
 
-        std::string blob_file[] = {config.ai.blob_file, config.ai.blob_file2};
+        std::string blob_file[] = { config.ai.blob_file, config.ai.blob_file2 };
 
         HostDataReader _blob_reader[num_stages];
         int size_blob[num_stages];
-        for (int stage = 0; stage < num_stages; stage++)
-        {
-            if (!blob_file[stage].empty())
-            {
-                if (!_blob_reader[stage].init(blob_file[stage]))
-                {
+        for (int stage = 0; stage < num_stages; stage++) {
+            if (!blob_file[stage].empty()) {
+                if (!_blob_reader[stage].init(blob_file[stage])) {
                     std::cerr << WARNING "depthai: Error opening blob file: " << blob_file[stage] << "\n" ENDC;
                     break;
                 }
@@ -670,34 +685,37 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
 
         std::vector<std::string> pipeline_device_streams;
 
-        for (const auto &stream : config.streams)
-        {
+        for (const auto& stream : config.streams) {
             if (c_streams_myriad_to_pc[stream.name].dimensions[0] == MONO_RES_AUTO) {
                 c_streams_myriad_to_pc[stream.name].dimensions[0] = config.mono_cam_config.resolution_h;
                 c_streams_myriad_to_pc[stream.name].dimensions[1] = config.mono_cam_config.resolution_w;
             }
 
-            if (stream.name == "disparity_color")
-            {
+            if (stream.name == "disparity_color") {
                 c_streams_myriad_to_pc["disparity"].dimensions[0] = c_streams_myriad_to_pc[stream.name].dimensions[0];
                 c_streams_myriad_to_pc["disparity"].dimensions[1] = c_streams_myriad_to_pc[stream.name].dimensions[1];
                 add_disparity_post_processing_color = true;
-                json obj = { {"name", "disparity"} };
-                if (0.f != stream.max_fps)     { obj["max_fps"]   = stream.max_fps;   };
+                json obj = { { "name", "disparity" } };
+                if (0.f != stream.max_fps) {
+                    obj["max_fps"] = stream.max_fps;
+                };
                 json_config_obj["_pipeline"]["_streams"].push_back(obj);
-            }
-            else
-            {
-                if (stream.name == "meta_d2h")
-                {
+            } else {
+                if (stream.name == "meta_d2h") {
                     temp_measurement = true;
                 }
-                json obj = { {"name" ,stream.name} };
+                json obj = { { "name", stream.name } };
 
-                if (!stream.data_type.empty()) { obj["data_type"] = stream.data_type; };
-                if (0.f != stream.max_fps)     { obj["max_fps"]   = stream.max_fps;   };
+                if (!stream.data_type.empty()) {
+                    obj["data_type"] = stream.data_type;
+                };
+                if (0.f != stream.max_fps) {
+                    obj["max_fps"] = stream.max_fps;
+                };
 
-                if (stream.name == "depth_raw"){obj["data_type"] = "uint16"; }
+                if (stream.name == "depth_raw") {
+                    obj["data_type"] = "uint16";
+                }
 
                 json_config_obj["_pipeline"]["_streams"].push_back(obj);
                 pipeline_device_streams.push_back(stream.name);
@@ -707,7 +725,8 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         //29808*2 = 59616
         // host -> "config_h2d" -> device
         std::string pipeline_config_str_packed = json_config_obj.dump();
-        std::cout << "config_h2d json:\n" << pipeline_config_str_packed << "\n";
+        std::cout << "config_h2d json:\n"
+                  << pipeline_config_str_packed << "\n";
         // resize, as xlink expects exactly the same size for input:
         std::cout << "size of input string json_config_obj to config_h2d is ->" << pipeline_config_str_packed.size() << std::endl;
 
@@ -718,9 +737,7 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
 
         if (!g_xlink->openWriteAndCloseStream(
                 g_streams_pc_to_myriad.at("config_h2d"),
-                pipeline_config_str_packed.data())
-            )
-        {
+                pipeline_config_str_packed.data())) {
             std::cerr << WARNING "depthai: pipelineConfig write error\n" ENDC;
             break;
         }
@@ -730,16 +747,11 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         g_host_caputure_command = std::unique_ptr<HostCaptureCommand>(new HostCaptureCommand((stream)));
         g_xlink->observe(*g_host_caputure_command, stream);
 
-
         // read & pass blob file
-        if (config.ai.blob_file.empty())
-        {
+        if (config.ai.blob_file.empty()) {
             std::cout << "depthai: Blob file is not specified, will use default setting;\n";
-        }
-        else
-        {
-            for (int stage = 0; stage < num_stages; stage++)
-            {
+        } else {
+            for (int stage = 0; stage < num_stages; stage++) {
                 std::vector<uint8_t> buff_blob(size_blob[stage]);
 
                 std::cout << "Read: " << _blob_reader[stage].readData(buff_blob.data(), size_blob[stage]) << std::endl;
@@ -749,8 +761,7 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
                 blobInfo.name = "inBlob";
                 blobInfo.size = size_blob[stage];
 
-                if (!g_xlink->openWriteAndCloseStream(blobInfo, buff_blob.data()))
-                {
+                if (!g_xlink->openWriteAndCloseStream(blobInfo, buff_blob.data())) {
                     std::cout << "depthai: pipelineConfig write error: Blob size too big: " << size_blob[stage] << "\n";
                     break;
                 }
@@ -768,130 +779,108 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
                 g_xlink->openReadAndCloseStream(
                     outBlob,
                     (void*)cnn_info_arr,
-                    sizeof(cnn_info)
-                    );
+                    sizeof(cnn_info));
 
                 memcpy(&cnn_input_info, &cnn_info_arr, sizeof(cnn_input_info));
 
                 printf("CNN input width: %d\n", cnn_input_info.cnn_input_width);
                 printf("CNN input height: %d\n", cnn_input_info.cnn_input_height);
                 printf("CNN input num channels: %d\n", cnn_input_info.cnn_input_num_channels);
-                if (stage == 0)
-                {
+                if (stage == 0) {
                     printf("CNN to depth bounding-box mapping: start(%d, %d), max_size(%d, %d)\n",
-                            cnn_input_info.nn_to_depth.offset_x,
-                            cnn_input_info.nn_to_depth.offset_y,
-                            cnn_input_info.nn_to_depth.max_width,
-                            cnn_input_info.nn_to_depth.max_height);
+                        cnn_input_info.nn_to_depth.offset_x,
+                        cnn_input_info.nn_to_depth.offset_y,
+                        cnn_input_info.nn_to_depth.max_width,
+                        cnn_input_info.nn_to_depth.max_height);
                     nn_to_depth_mapping["off_x"] = cnn_input_info.nn_to_depth.offset_x;
                     nn_to_depth_mapping["off_y"] = cnn_input_info.nn_to_depth.offset_y;
                     nn_to_depth_mapping["max_w"] = cnn_input_info.nn_to_depth.max_width;
                     nn_to_depth_mapping["max_h"] = cnn_input_info.nn_to_depth.max_height;
                 }
                 // update tensor infos
-                assert(!(tensors_info.size() > (sizeof(cnn_input_info.offsets)/sizeof(cnn_input_info.offsets[0]))));
+                assert(!(tensors_info.size() > (sizeof(cnn_input_info.offsets) / sizeof(cnn_input_info.offsets[0]))));
 
                 if (stage == 0) {
-                    for (int i = 0; i < tensors_info.size(); i++)
-                    {
-                        tensors_info[i].nnet_input_width  = cnn_input_info.cnn_input_width;
+                    for (int i = 0; i < tensors_info.size(); i++) {
+                        tensors_info[i].nnet_input_width = cnn_input_info.cnn_input_width;
                         tensors_info[i].nnet_input_height = cnn_input_info.cnn_input_height;
                         tensors_info[i].offset = cnn_input_info.offsets[i];
                     }
 
                     c_streams_myriad_to_pc["previewout"].dimensions = {
-                                                                       cnn_input_info.cnn_input_num_channels,
-                                                                       cnn_input_info.cnn_input_height,
-                                                                       cnn_input_info.cnn_input_width
-                                                                       };
+                        cnn_input_info.cnn_input_num_channels,
+                        cnn_input_info.cnn_input_height,
+                        cnn_input_info.cnn_input_width
+                    };
                 }
                 // check CMX slices & used shaves
-                if (cnn_input_info.number_of_cmx_slices > config.ai.cmx_slices)
-                {
+                if (cnn_input_info.number_of_cmx_slices > config.ai.cmx_slices) {
                     std::cerr << WARNING "Error: Blob is compiled for " << cnn_input_info.number_of_cmx_slices
                               << " cmx slices but device is configured to calculate on " << config.ai.cmx_slices << "\n" ENDC;
                     break;
                 }
 
-                if (cnn_input_info.number_of_shaves > config.ai.shaves)
-                {
+                if (cnn_input_info.number_of_shaves > config.ai.shaves) {
                     std::cerr << WARNING "Error: Blob is compiled for " << cnn_input_info.number_of_shaves
                               << " shaves but device is configured to calculate on " << config.ai.shaves << "\n" ENDC;
                     break;
                 }
 
-                if(!cnn_input_info.satisfied_resources)
-                {
+                if (!cnn_input_info.satisfied_resources) {
                     std::cerr << WARNING "ERROR: requested CNN resources overlaps with RGB camera \n" ENDC;
                     break;
                 }
-
             }
         }
-
 
         // sort streams by device specified order
         {
             // mapping: stream name -> array index
             std::vector<std::string> available_streams_ordered = get_available_steams();
             std::unordered_map<std::string, int> stream_name_to_idx;
-            for (int i = 0; i < available_streams_ordered.size(); ++i)
-            {
-                stream_name_to_idx[ available_streams_ordered[i] ] = i;
+            for (int i = 0; i < available_streams_ordered.size(); ++i) {
+                stream_name_to_idx[available_streams_ordered[i]] = i;
             }
 
             // check requested streams are in available streams
             bool wrong_stream_name = false;
-            for (const auto &stream_name : pipeline_device_streams)
-            {
-                if (stream_name_to_idx.find(stream_name) == stream_name_to_idx.end())
-                {
+            for (const auto& stream_name : pipeline_device_streams) {
+                if (stream_name_to_idx.find(stream_name) == stream_name_to_idx.end()) {
                     std::cout << "Error: device does not provide stream: " << stream_name << "\n";
                     wrong_stream_name = true;
                 }
             }
 
-            if (wrong_stream_name)
-            {
+            if (wrong_stream_name) {
                 break;
             }
 
             // sort
             std::sort(std::begin(pipeline_device_streams), std::end(pipeline_device_streams),
-                [&stream_name_to_idx]
-                (const std::string &a, const std::string &b)
-                {
+                [&stream_name_to_idx](const std::string& a, const std::string& b) {
                     return stream_name_to_idx[a] < stream_name_to_idx[b];
-                }
-            );
+                });
         }
 
-
         // pipeline
-        if(gl_result == nullptr)
+        if (gl_result == nullptr)
             gl_result = std::shared_ptr<CNNHostPipeline>(new CNNHostPipeline(tensors_info));
 
-        for (const std::string &stream_name : pipeline_device_streams)
-        {
+        for (const std::string& stream_name : pipeline_device_streams) {
             std::cout << "Host stream start:" << stream_name << "\n";
 
-            if (g_xlink->openStreamInThreadAndNotifyObservers(c_streams_myriad_to_pc.at(stream_name)))
-            {
+            if (g_xlink->openStreamInThreadAndNotifyObservers(c_streams_myriad_to_pc.at(stream_name))) {
                 gl_result->makeStreamPublic(stream_name);
                 gl_result->observe(*g_xlink.get(), c_streams_myriad_to_pc.at(stream_name));
-            }
-            else
-            {
+            } else {
                 std::cout << "depthai: " << stream_name << " error;\n";
                 // TODO: rollback correctly!
                 break;
             }
         }
 
-
         // disparity post processor
-        if (add_disparity_post_processing_color)
-        {
+        if (add_disparity_post_processing_color) {
             g_disparity_post_proc = std::unique_ptr<DisparityStreamPostProcessor>(
                 new DisparityStreamPostProcessor(
                     add_disparity_post_processing_color));
@@ -899,57 +888,49 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
             const std::string stream_in_name = "disparity";
             const std::string stream_out_color_name = "disparity_color";
 
-            if (g_xlink->openStreamInThreadAndNotifyObservers(c_streams_myriad_to_pc.at(stream_in_name)))
-            {
+            if (g_xlink->openStreamInThreadAndNotifyObservers(c_streams_myriad_to_pc.at(stream_in_name))) {
                 g_disparity_post_proc->observe(*g_xlink.get(), c_streams_myriad_to_pc.at(stream_in_name));
 
-                if (add_disparity_post_processing_color)
-                {
+                if (add_disparity_post_processing_color) {
                     gl_result->makeStreamPublic(stream_out_color_name);
                     gl_result->observe(*g_disparity_post_proc.get(), c_streams_myriad_to_pc.at(stream_out_color_name));
                 }
-            }
-            else
-            {
+            } else {
                 std::cout << "depthai: stream open error " << stream_in_name << " (2)\n";
                 // TODO: rollback correctly!
                 break;
             }
         }
 
-        if(temp_measurement)
-        {
+        if (temp_measurement) {
             // device support listener
             g_device_support_listener = std::unique_ptr<DeviceSupportListener>(new DeviceSupportListener);
 
             g_device_support_listener->observe(
                 *g_xlink.get(),
-                c_streams_myriad_to_pc.at("meta_d2h")
-                );
+                c_streams_myriad_to_pc.at("meta_d2h"));
         }
 
         init_ok = true;
         std::cout << "depthai: INIT OK!\n";
-    }
-    while (false);
+    } while (false);
 
-    if (!init_ok)
-    {
+    if (!init_ok) {
         gl_result = nullptr;
     }
 
     return gl_result;
 }
 
-static void send_DisparityConfidenceThreshold(uint8_t confidence){
-    if(g_host_caputure_command != nullptr){
+static void send_DisparityConfidenceThreshold(uint8_t confidence)
+{
+    if (g_host_caputure_command != nullptr) {
         g_host_caputure_command->sendDisparityConfidenceThreshold(confidence);
     }
 }
 
 PYBIND11_MAKE_OPAQUE(std::list<std::shared_ptr<HostDataPacket>>);
 PYBIND11_MAKE_OPAQUE(std::list<std::shared_ptr<NNetPacket>>);
-
 
 PYBIND11_MODULE(depthai, m)
 {
@@ -958,8 +939,7 @@ PYBIND11_MODULE(depthai, m)
     m.def(
         "send_DisparityConfidenceThreshold",
         &send_DisparityConfidenceThreshold,
-        "Function to send disparity confidence threshold for SGBM"
-    );
+        "Function to send disparity confidence threshold for SGBM");
 
     // TODO: test ownership in python
 
@@ -977,44 +957,69 @@ PYBIND11_MODULE(depthai, m)
         &init_device,
         "Function that establishes the connection with device and gets configurations from it.",
         py::arg("cmd_file") = device_cmd_file,
-        py::arg("usb_device") = usb_device
-        );
-    
+        py::arg("usb_device") = usb_device);
+
     m.def(
         "deinit_device",
         &deinit_device,
-        "Function that destroys the connection with device."
-        );
+        "Function that destroys the connection with device.");
 
     // reboot
     m.def(
         "reboot_device",
-        [](int device_id){
+        [](int device_id) {
             printf("Rebooting device: ...\n");
             XLinkWrapper::rebootDevice(device_id);
             printf("Rebooting device: DONE.\n");
         },
-        py::arg("device_id") = 0
-        );
+        py::arg("device_id") = 0);
 
     // available streams
     m.def(
         "get_available_steams",
         &get_available_steams,
-        "Returns available streams, that possible to retreive from the device."
-        );
+        "Returns available streams, that possible to retreive from the device.");
 
     m.def(
         "get_nn_to_depth_bbox_mapping",
         &get_nn_to_depth_bbox_mapping,
-        "Returns NN bounding-box to depth mapping as a dict of coords: off_x, off_y, max_w, max_h."
-        );
+        "Returns NN bounding-box to depth mapping as a dict of coords: off_x, off_y, max_w, max_h.");
+
+    // calibration data bindings
+    m.def(
+        "get_left_intrinsic",
+        &get_left_intrinsic,
+        "Returns 3x3 matrix defining the intrinsix parameters of the left camera of the stereo setup.");
+
+    m.def(
+        "get_left_homography",
+        &get_left_homography,
+        "Returns 3x3 matrix defining the homography to rectify the left camera of the stereo setup.");
+
+    m.def(
+        "get_right_intrinsic",
+        &get_right_intrinsic,
+        "Returns 3x3 matrix defining the intrinsix parameters of the right camera of the stereo setup.");
+
+    m.def(
+        "get_right_homography",
+        &get_right_homography,
+        "Returns 3x3 matrix defining the homography to rectify the right camera of the stereo setup.");
+
+    m.def(
+        "get_rotation",
+        &get_rotation,
+        "Returns 3x3 matrix defining how much the right camera is rotated w.r.t left camera.");
+
+    m.def(
+        "get_Translation",
+        &get_Translation,
+        "Returns a vector defining how much the right camera is translated w.r.t left camera.");
 
     // cnn pipeline
     m.def(
         "create_pipeline",
-        [](py::dict config)
-        {
+        [](py::dict config) {
             // str(dict) for string representation uses ['] , but JSON requires ["]
             // fast & dirty solution:
             std::string str = py::str(config);
@@ -1027,14 +1032,12 @@ PYBIND11_MODULE(depthai, m)
             return create_pipeline(str);
         },
         "Function for pipeline creation",
-        py::arg("config") = py::dict()
-        );
+        py::arg("config") = py::dict());
 
     m.def(
         "download_blob",
         &download_blob,
-        "Function that downloads and saves blob file from cloud."
-         );
+        "Function that downloads and saves blob file from cloud.");
 
     // FrameMetadata struct binding
     py::class_<FrameMetadata>(m, "FrameMetadata")
@@ -1048,26 +1051,23 @@ PYBIND11_MODULE(depthai, m)
         .def("getCategory", &FrameMetadata::getCategory)
         .def("getInstanceNum", &FrameMetadata::getInstanceNum)
         .def("getSequenceNum", &FrameMetadata::getSequenceNum)
-        .def("getCameraName", &FrameMetadata::getCameraName)
-        ;
+        .def("getCameraName", &FrameMetadata::getCameraName);
 
     // ObjectTracker struct binding
     py::class_<ObjectTracker>(m, "ObjectTracker")
         .def(py::init<>())
-        .def("__len__",        &ObjectTracker::getNrTracklets)
+        .def("__len__", &ObjectTracker::getNrTracklets)
         .def("getNrTracklets", &ObjectTracker::getNrTracklets)
-        .def("getTracklet",    &ObjectTracker::getTracklet)
-        ;
-    
+        .def("getTracklet", &ObjectTracker::getTracklet);
+
     py::class_<Tracklet>(m, "Tracklet")
-        .def("getId",          &Tracklet::getId)
-        .def("getLabel",       &Tracklet::getLabel)
-        .def("getStatus",      &Tracklet::getStatus)
-        .def("getLeftCoord",   &Tracklet::getLeftCoord)
-        .def("getTopCoord",    &Tracklet::getTopCoord)
-        .def("getRightCoord",  &Tracklet::getRightCoord)
-        .def("getBottomCoord", &Tracklet::getBottomCoord)
-        ;
+        .def("getId", &Tracklet::getId)
+        .def("getLabel", &Tracklet::getLabel)
+        .def("getStatus", &Tracklet::getStatus)
+        .def("getLeftCoord", &Tracklet::getLeftCoord)
+        .def("getTopCoord", &Tracklet::getTopCoord)
+        .def("getRightCoord", &Tracklet::getRightCoord)
+        .def("getBottomCoord", &Tracklet::getBottomCoord);
 
     // for PACKET in data_packets:
     py::class_<HostDataPacket, std::shared_ptr<HostDataPacket>>(m, "DataPacket")
@@ -1076,28 +1076,28 @@ PYBIND11_MODULE(depthai, m)
         .def("getData", &HostDataPacket::getPythonNumpyArray, py::return_value_policy::take_ownership)
         .def("getDataAsStr", &HostDataPacket::getDataAsString, py::return_value_policy::take_ownership)
         .def("getMetadata", &HostDataPacket::getMetadata)
-        .def("getObjectTracker", &HostDataPacket::getObjectTracker, py::return_value_policy::take_ownership)
-        ;
+        .def("getObjectTracker", &HostDataPacket::getObjectTracker, py::return_value_policy::take_ownership);
 
     // nnet_packets, DATA_PACKETS = p.get_available_nnet_and_data_packets()
     py::class_<std::list<std::shared_ptr<HostDataPacket>>>(m, "DataPacketList")
         .def(py::init<>())
-        .def("__len__",  [](const std::list<std::shared_ptr<HostDataPacket>> &v) { return v.size(); })
-        .def("__iter__", [](std::list<std::shared_ptr<HostDataPacket>> &v)
-        {
-            return py::make_iterator(v.begin(), v.end());
-        }, py::keep_alive<0, 1>()) /* Keep list alive while iterator is used */
+        .def("__len__", [](const std::list<std::shared_ptr<HostDataPacket>>& v) { return v.size(); })
+        .def(
+            "__iter__", [](std::list<std::shared_ptr<HostDataPacket>>& v) {
+                return py::make_iterator(v.begin(), v.end());
+            },
+            py::keep_alive<0, 1>()) /* Keep list alive while iterator is used */
         ;
-
 
     // NNET_PACKETS, data_packets = p.get_available_nnet_and_data_packets()
     py::class_<std::list<std::shared_ptr<NNetPacket>>>(m, "NNetPacketList")
         .def(py::init<>())
-        .def("__len__",  [](const std::list<std::shared_ptr<NNetPacket>> &v) { return v.size(); })
-        .def("__iter__", [](std::list<std::shared_ptr<NNetPacket>> &v)
-        {
-            return py::make_iterator(v.begin(), v.end());
-        }, py::keep_alive<0, 1>()) /* Keep list alive while iterator is used */
+        .def("__len__", [](const std::list<std::shared_ptr<NNetPacket>>& v) { return v.size(); })
+        .def(
+            "__iter__", [](std::list<std::shared_ptr<NNetPacket>>& v) {
+                return py::make_iterator(v.begin(), v.end());
+            },
+            py::keep_alive<0, 1>()) /* Keep list alive while iterator is used */
         ;
 
     // for NNET_PACKET in nnet_packets:
@@ -1105,32 +1105,27 @@ PYBIND11_MODULE(depthai, m)
         .def("get_tensor", &NNetPacket::getTensor, py::return_value_policy::copy)
         .def("get_tensor", &NNetPacket::getTensorByName, py::return_value_policy::copy)
         .def("entries", &NNetPacket::getTensorEntryContainer, py::return_value_policy::copy)
-        .def("getMetadata", &NNetPacket::getMetadata, py::return_value_policy::copy)
-        ;
+        .def("getMetadata", &NNetPacket::getMetadata, py::return_value_policy::copy);
 
     // for te in nnet_packet.ENTRIES()
     py::class_<TensorEntryContainer, std::shared_ptr<TensorEntryContainer>>(m, "TensorEntryContainer")
         .def("__len__", &TensorEntryContainer::size)
         .def("__getitem__", &TensorEntryContainer::getByIndex)
         .def("__getitem__", &TensorEntryContainer::getByName)
-        .def("__iter__", [](py::object s) { return PyTensorEntryContainerIterator(s.cast<TensorEntryContainer &>(), s); })
-        ;
+        .def("__iter__", [](py::object s) { return PyTensorEntryContainerIterator(s.cast<TensorEntryContainer&>(), s); });
 
     // for e in nnet_packet.entries():
     //     e <--- (type(e) == list)
     py::class_<PyTensorEntryContainerIterator>(m, "PyTensorEntryContainerIterator")
-        .def("__iter__", [](PyTensorEntryContainerIterator &it) -> PyTensorEntryContainerIterator& { return it; })
-        .def("__next__", &PyTensorEntryContainerIterator::next)
-        ;
+        .def("__iter__", [](PyTensorEntryContainerIterator& it) -> PyTensorEntryContainerIterator& { return it; })
+        .def("__next__", &PyTensorEntryContainerIterator::next);
 
     // for e in nnet_packet.entries():
     //     e[0] <--
     py::class_<TensorEntry, std::shared_ptr<TensorEntry>>(m, "TensorEntry")
         .def("__len__", &TensorEntry::getPropertiesNumber)
         .def("__getitem__", &TensorEntry::getFloat)
-        .def("__getitem__", &TensorEntry::getFloatByIndex)
-        ;
-
+        .def("__getitem__", &TensorEntry::getFloatByIndex);
 
     // while True:
     //     nnet_packets, data_packets = p.get_available_nnet_and_data_packets()
@@ -1149,16 +1144,12 @@ PYBIND11_MODULE(depthai, m)
     //             # e[0]: depthai.TensorEntry
     //             # e[0][0]: float
 
-
     py::class_<HostPipeline>(m, "Pipeline")
-        .def("get_available_data_packets", &HostPipeline::getAvailableDataPackets, py::return_value_policy::copy)
-        ;
+        .def("get_available_data_packets", &HostPipeline::getAvailableDataPackets, py::return_value_policy::copy);
 
     py::class_<CNNHostPipeline, std::shared_ptr<CNNHostPipeline>>(m, "CNNPipeline")
         .def("get_available_data_packets", &CNNHostPipeline::getAvailableDataPackets, py::return_value_policy::copy)
-        .def("get_available_nnet_and_data_packets", &CNNHostPipeline::getAvailableNNetAndDataPackets, py::return_value_policy::copy)
-        ;
-
+        .def("get_available_nnet_and_data_packets", &CNNHostPipeline::getAvailableNNetAndDataPackets, py::return_value_policy::copy);
 
     // module destructor
     auto cleanup_callback = []() {

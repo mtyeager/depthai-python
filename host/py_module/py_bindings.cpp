@@ -278,7 +278,7 @@ bool init_device(
             float left_to_right_distance_m = g_config_d2h.at("eeprom").at("left_to_right_distance_m").get<float>();
             float left_to_rgb_distance_m = g_config_d2h.at("eeprom").at("left_to_rgb_distance_m").get<float>();
             bool swap_left_and_right_cameras = g_config_d2h.at("eeprom").at("swap_left_and_right_cameras").get<bool>();
-            std::vector<float> calib = g_config_d2h.at("eeprom").at("calib").get<std::vector<float>>();
+            std::vector<float> calib;
             printf("  Board name     : %s\n", board_name.empty() ? "<NOT-SET>" : board_name.c_str());
             printf("  Board rev      : %s\n", board_rev.empty()  ? "<NOT-SET>" : board_rev.c_str());
             printf("  HFOV L/R       : %g deg\n", left_fov_deg);
@@ -287,10 +287,55 @@ bool init_device(
             printf("  L-RGB distance : %g cm\n", 100 * left_to_rgb_distance_m);
             printf("  L/R swapped    : %s\n", swap_left_and_right_cameras ? "yes" : "no");
             printf("  L/R crop region: %s\n", stereo_center_crop ? "center" : "top");
-            printf("  Calibration homography:\n");
-            for (int i = 0; i < 9; i++) {
-                printf(" %11.6f,", calib.at(i));
-                if (i % 3 == 2) printf("\n");
+
+            if (version < 4) {
+                printf("  Calibration homography right to left (legacy, please consider recalibrating):\n");
+                calib = g_config_d2h.at("eeprom").at("calib_old_H").get<std::vector<float>>();
+                for (int i = 0; i < 9; i++) {
+                    printf(" %11.6f,", calib.at(i));
+                    if (i % 3 == 2) printf("\n");
+                }
+            } else {
+                printf("  Calibration homography H1 (left):\n");
+                calib = g_config_d2h.at("eeprom").at("calib_H1_L").get<std::vector<float>>();
+                for (int i = 0; i < 9; i++) {
+                    printf(" %11.6f,", calib.at(i));
+                    if (i % 3 == 2) printf("\n");
+                }
+
+                printf("  Calibration homography H2 (right):\n");
+                calib = g_config_d2h.at("eeprom").at("calib_H2_R").get<std::vector<float>>();
+                for (int i = 0; i < 9; i++) {
+                    printf(" %11.6f,", calib.at(i));
+                    if (i % 3 == 2) printf("\n");
+                }
+
+                printf("  Calibration intrinsic matrix M1 (left):\n");
+                calib = g_config_d2h.at("eeprom").at("calib_M1_L").get<std::vector<float>>();
+                for (int i = 0; i < 9; i++) {
+                    printf(" %11.6f,", calib.at(i));
+                    if (i % 3 == 2) printf("\n");
+                }
+
+                printf("  Calibration intrinsic matrix M2 (right):\n");
+                calib = g_config_d2h.at("eeprom").at("calib_M2_R").get<std::vector<float>>();
+                for (int i = 0; i < 9; i++) {
+                    printf(" %11.6f,", calib.at(i));
+                    if (i % 3 == 2) printf("\n");
+                }
+
+                printf("  Calibration rotation matrix R:\n");
+                calib = g_config_d2h.at("eeprom").at("calib_R").get<std::vector<float>>();
+                for (int i = 0; i < 9; i++) {
+                    printf(" %11.6f,", calib.at(i));
+                    if (i % 3 == 2) printf("\n");
+                }
+
+                printf("  Calibration translation matrix T:\n");
+                calib = g_config_d2h.at("eeprom").at("calib_T").get<std::vector<float>>();
+                for (int i = 0; i < 3; i++) {
+                    printf(" %11.6f,\n", calib.at(i));
+                }
             }
         }
 
@@ -559,7 +604,7 @@ std::shared_ptr<CNNHostPipeline> create_pipeline(
         json_config_obj["board"]["revision"] = config.board_config.revision;
         json_config_obj["_board"] =
         {
-            {"_homography_right_to_left", homography_buff},
+            {"calib_data", homography_buff},
             {"mesh_left", left_mesh_buff},
             {"mesh_right", right_mesh_buff}
         };

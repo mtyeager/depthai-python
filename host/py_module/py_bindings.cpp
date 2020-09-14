@@ -367,6 +367,11 @@ bool soft_deinit_device()
     return true;
 }
 
+bool is_eeprom_loaded(){
+    if(M1_l.empty() && M2_r.empty()) return false;
+    else return true;
+}
+
 bool deinit_device()
 {
     wdog_stop();
@@ -1010,6 +1015,11 @@ PYBIND11_MODULE(depthai, m)
         "get_rotation",
         &get_rotation,
         "Returns 3x3 matrix defining how much the right camera is rotated w.r.t left camera.");
+    
+    m.def(
+        "is_eeprom_loaded",
+        &is_eeprom_loaded,
+        "Return true if both intrinsics are loaded into EEPROM");
 
     m.def(
         "get_Translation",

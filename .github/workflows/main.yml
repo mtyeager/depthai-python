@@ -42,6 +42,15 @@ jobs:
           python -m pip install --upgrade pip
       - name: Building wheels
         run: python -m pip wheel . -w ./wheelhouse/
+      - name: List files
+        run: ls -lah wheelhouse/audited/
+      - name: Run deploy to artifacts
+        if: startsWith(github.ref, 'refs/tags/v') != true
+        run: bash ./ci/upload-artifactory.sh
+        env:
+          ARTIFACTORY_URL: ${{ secrets.ARTIFACTORY_URL }}
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_PASS: ${{ secrets.ARTIFACTORY_PASS }}
       - name: Archive wheel artifacts
         uses: actions/upload-artifact@v2
         with:

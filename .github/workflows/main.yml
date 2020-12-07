@@ -86,6 +86,15 @@ jobs:
         with:
           name: audited-wheels
           path: wheelhouse/audited/
+      - name: List files
+        run: ls -lah wheelhouse/audited/
+      - name: Run deploy to artifacts
+        if: startsWith(github.ref, 'refs/tags/v') != true
+        run: bash ./ci/upload-artifactory.sh
+        env:
+          ARTIFACTORY_URL: ${{ secrets.ARTIFACTORY_URL }}
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_PASS: ${{ secrets.ARTIFACTORY_PASS }}
 
   # This job builds wheels for x86_64 arch
   build-linux-x86_64:
@@ -162,6 +171,15 @@ jobs:
         with:
           name: audited-wheels
           path: wheelhouse/audited/
+      - name: List files
+        run: ls -lah wheelhouse/audited/
+      - name: Run deploy to artifacts
+        if: startsWith(github.ref, 'refs/tags/v') != true
+        run: bash ./ci/upload-artifactory.sh
+        env:
+          ARTIFACTORY_URL: ${{ secrets.ARTIFACTORY_URL }}
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_PASS: ${{ secrets.ARTIFACTORY_PASS }}
 
   # Run tests
   # tests:

@@ -19,17 +19,18 @@ xout_rgb = pipeline.createXLinkOut()
 xout_rgb.setStreamName("rgb")
 cam_rgb.preview.link(xout_rgb.input)
 
+device = {}
 q_rgb_list = []
 for i in range(2):
     found, device_info = dai.XLinkConnection.getFirstDevice(dai.XLinkDeviceState.X_LINK_UNBOOTED)
     if not found:
         print('Device', i + 1, 'not found!')
         continue
-    device = dai.Device(pipeline, device_info)
-    device.startPipeline()
+    device[i] = dai.Device(pipeline, device_info)
+    device[i].startPipeline()
 
     # Output queue will be used to get the rgb frames from the output defined above
-    q_rgb = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
+    q_rgb = device[i].getOutputQueue(name="rgb", maxSize=4, blocking=False)
     q_rgb_list.append(q_rgb)
 
 while True:
@@ -43,5 +44,5 @@ while True:
             # frame is transformed and ready to be shown
             cv2.imshow("rgb-" + str(i + 1), frame_rgb)
 
-        if cv2.waitKey(1) == ord('q'):
-            break
+            if cv2.waitKey(1) == ord('q'):
+                break

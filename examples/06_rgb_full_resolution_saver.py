@@ -2,7 +2,6 @@
 
 import time
 from pathlib import Path
-
 import cv2
 import depthai as dai
 
@@ -33,8 +32,8 @@ device = dai.Device(pipeline)
 device.startPipeline()
 
 # Output queue will be used to get the rgb frames from the output defined above
-q_rgb = device.getOutputQueue(name="rgb", maxSize=30, blocking=False)
-q_jpeg = device.getOutputQueue(name="jpeg", maxSize=30, blocking=True)
+q_rgb = device.getOutputQueue(name="rgb", maxSize=1, blocking=False)
+q_jpeg = device.getOutputQueue(name="jpeg", maxSize=1, blocking=False)
 
 # Make sure the destination path is present before starting to store the examples
 Path('06_data').mkdir(parents=True, exist_ok=True)

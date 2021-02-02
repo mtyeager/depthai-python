@@ -31,6 +31,29 @@ xout_nn = pipeline.createXLinkOut()
 xout_nn.setStreamName("nn")
 detection_nn.out.link(xout_nn.input)
 
+mobilenet_labels = [
+    "background",
+    "aeroplane",
+    "bicycle",
+    "bird",
+    "boat",
+    "bottle",
+    "bus",
+    "car",
+    "cat",
+    "chair",
+    "cow",
+    "diningtable",
+    "dog",
+    "horse",
+    "motorbike",
+    "person",
+    "pottedplant",
+    "sheep",
+    "sofa",
+    "train",
+    "tvmonitor"
+]
 
 # Pipeline defined, now the device is connected to
 with dai.Device(pipeline) as device:
@@ -75,13 +98,18 @@ with dai.Device(pipeline) as device:
             # transform the 1D array into Nx7 matrix
             bboxes = bboxes.reshape((bboxes.size // 7, 7))
             # filter out the results which confidence less than a defined threshold
-            bboxes = bboxes[bboxes[:, 2] > 0.5][:, 3:7]
+            bboxes = bboxes[bboxes[:, 2] > 0.5]
 
         if frame is not None:
             # if the frame is available, draw bounding boxes on it and show the frame
             for raw_bbox in bboxes:
-                bbox = frame_norm(frame, raw_bbox)
+                bbox = frame_norm(frame, raw_bbox[3:7])
                 cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2)
+                label = mobilenet_labels[int(raw_bbox[1])]
+                score = int(raw_bbox[2] * 100)
+                cv2.putText(frame, str(score) + ' ' + label,
+                            (bbox[0] + 5, bbox[1] + 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
             cv2.imshow("rgb", frame)
 
         if cv2.waitKey(1) == ord('q'):

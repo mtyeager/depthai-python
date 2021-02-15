@@ -30,7 +30,7 @@ window.onload = function(){
   var test = document.getElementsByClassName("wy-side-scroll")[0];
   test.scrollTop = 0;
   if (location.pathname.startsWith("/projects")) {
-    var links = document.querySelectorAll("#lux-doc-navbar a[href^='https://docs.luxonis.com/projects']");
+    var links = document.querySelectorAll("#lux-doc-navbar a[href^='/projects']");
     console.log("Current pathname: ", location.pathname)
     for (var i = 0; i < links.length; i++) {
       console.log("Link href: ", links[i].href)
@@ -40,7 +40,7 @@ window.onload = function(){
       }
     }
   } else {
-    var main = document.querySelector("#lux-doc-navbar a:not([href^='https://docs.luxonis.com/projects'])")
+    var main = document.querySelector("#lux-doc-navbar a:not([href^='/projects'])")
     console.log(main)
     main.classList.add('lux-navbar-active')
   }

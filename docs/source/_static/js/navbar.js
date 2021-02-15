@@ -29,10 +29,10 @@ window.onload = function(){
   adjustNavbarPosition()
   var test = document.getElementsByClassName("wy-side-scroll")[0];
   test.scrollTop = 0;
-  if (location.href.startsWith("https://docs.luxonis.com/projects")) {
+  if (location.pathname.startsWith("/projects")) {
     var links = document.querySelectorAll("#lux-doc-navbar a[href^='https://docs.luxonis.com/projects']");
     for (var i = 0; i < links.length; i++) {
-      if(location.href.includes(links[i].href)) {
+      if(location.pathname.includes(links[i].href)) {
         links[i].classList.add('lux-navbar-active')
       }
     }

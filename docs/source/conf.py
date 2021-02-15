@@ -16,13 +16,18 @@
 
 
 # -- Project information -----------------------------------------------------
+import sys
+from pathlib import Path
+
+sys.path.insert(0, Path(__file__).parent.parent.parent.resolve().absolute().__str__())
+import find_version
 
 project = 'DepthAI API Docs'
 copyright = '2020, Luxonis'
 author = 'Luxonis'
 
 # The full version, including alpha/beta/rc tags
-release = '1.0.2'
+release = find_version.get_package_version()
 
 
 # -- General configuration ---------------------------------------------------
@@ -64,6 +69,10 @@ html_static_path = ['_static']
 html_favicon = '_static/images/favicon.png'
 html_css_files = [
     'css/index.css',
+    'css/navbar.css',
+]
+html_js_files = [
+    'js/navbar.js',
 ]
 
 intersphinx_mapping = {'python': ('https://docs.python.org/3', None)}

@@ -31,7 +31,10 @@ window.onload = function(){
   test.scrollTop = 0;
   if (location.pathname.startsWith("/projects")) {
     var links = document.querySelectorAll("#lux-doc-navbar a[href^='https://docs.luxonis.com/projects']");
+    console.log("Current pathname: ", location.pathname)
     for (var i = 0; i < links.length; i++) {
+      console.log("Link href: ", links[i].href)
+      console.log("Match: ", location.pathname.includes(links[i].href))
       if(location.pathname.includes(links[i].href)) {
         links[i].classList.add('lux-navbar-active')
       }

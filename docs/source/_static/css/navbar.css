@@ -51,6 +51,7 @@
 
 .lux-navbar .lux-navbar-active {
     color: white;
+    font-weight: bold;
 }
 
 .wy-nav-side {

@@ -33,9 +33,9 @@ window.onload = function(){
     var links = document.querySelectorAll("#lux-doc-navbar a[href^='/projects']");
     console.log("Current pathname: ", location.pathname)
     for (var i = 0; i < links.length; i++) {
-      console.log("Link href: ", links[i].href)
-      console.log("Match: ", location.pathname.includes(links[i].href))
-      if(location.pathname.includes(links[i].href)) {
+      console.log("Link pathname: ", links[i].pathname)
+      console.log("Match: ", location.pathname.includes(links[i].pathname))
+      if(location.pathname.includes(links[i].pathname)) {
         links[i].classList.add('lux-navbar-active')
       }
     }

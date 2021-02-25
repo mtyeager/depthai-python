@@ -49,12 +49,21 @@ if(DEPTHAI_PYTHON_TEST_EXAMPLES)
         LOCATION construction_vest
     )
 
+    # YoloV3 resource
     hunter_private_data(
         URL "https://artifacts.luxonis.com/artifactory/luxonis-depthai-data-local/network/tiny-yolo-v3_openvino_2021.2_6shave.blob"
         SHA1 "f0ac263a0d55c374e1892eea21c9b7d1170bde46"
         FILE "tiny-yolo-v3_openvino_2021.2_6shave.blob"
         LOCATION tiny_yolo_v3_blob
     )
+    # YoloV4 resource
+    hunter_private_data(
+        URL "https://artifacts.luxonis.com/artifactory/luxonis-depthai-data-local/network/tiny-yolo-v4_openvino_2021.2_6shave.blob"
+        SHA1 "219d949610a5760e62a8458941e1300b81c3fe4a"
+        FILE "tiny-yolo-v4_openvino_2021.2_6shave.blob"
+        LOCATION tiny_yolo_v4_blob
+    )
+    
 
     # Add tests
     dai_add_python_test(01_rgb_preview 01_rgb_preview.py)
@@ -78,7 +87,8 @@ if(DEPTHAI_PYTHON_TEST_EXAMPLES)
     dai_add_python_test(19_mono_camera_control 19_mono_camera_control.py)
     dai_add_python_test(20_color_rotate_warp 20_color_rotate_warp.py)
     dai_add_python_test(21_mobilenet_device_side_decoding 21_mobilenet_device_side_decoding.py "${mobilenet_blob}")
-    dai_add_python_test(22_tiny_yolo_v3_device_side_decoding 22_tiny_yolo_v3_device_side_decoding.py "${tiny_yolo_v3_blob}")
+    dai_add_python_test(22_1_tiny_yolo_v3_device_side_decoding 22_1_tiny_yolo_v3_device_side_decoding.py "${tiny_yolo_v3_blob}")
+    dai_add_python_test(22_2_tiny_yolo_v4_device_side_decoding 22_2_tiny_yolo_v4_device_side_decoding.py "${tiny_yolo_v4_blob}")
     dai_add_python_test(23_autoexposure_roi 23_autoexposure_roi.py "${mobilenet_blob}")
     dai_add_python_test(24_opencv_support 24_opencv_support.py)
 
